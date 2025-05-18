@@ -220,15 +220,23 @@ class VectorStore:
                 return "Sorry, the Gemini model is not available. Please check your API key."
 
             # Generate response using Gemini with the retrieved context
-            prompt = f"""Du är en juridisk assistent som svarar på frågor om svensk patentlagstiftning.
+            prompt = f"""Du är en juridisk assistent som svarar på frågor om svensk lagstiftning inom immaterialsrättlagstiftning, inklusive upphovsrätt, patenträtt, varumärkesrätt och mönsterskydd.
             Du ska svara **på svenska**. Använd endast informationen i den tillhandahållna lagtexten nedan. Om du inte hittar ett direkt svar, säg det tydligt och visa den mest relevanta informationen ändå.
+            
+            ### Viktigt:
+            - Ange alltid exakt kapitel och paragraf när du hänvisar till lagtext (t.ex. "Enligt 1 kap. 2 §...")
+            - Dubbelkolla NOGA att kapitel och paragraf hör ihop - kontrollera att du inte blandar paragrafnummer från ett kapitel med fel kapitelnummer
+            - Om du citerar lagtext, markera tydligt början och slutet på citatet
+            - Hänvisa alltid till ursprungskällan och var helt transparent med var informationen kommer ifrån
+            - Om paragrafnummer och kapitelnummer förekommer separat i olika delar av texten, säkerställ att du kombinerar dem korrekt
+            
             ### Lagtext:
             {context_str}
 
             ### Fråga:
             {query_text}
 
-            Besvara frågan med direkt stöd i texten, utan egna antaganden. Du ska svara **på svenska**."""
+            Besvara frågan med direkt stöd i texten, utan egna antaganden. Du ska svara **på svenska**. Ange alltid kapitel- och paragrafnummer när det är relevant. Dubbelkolla att du inte anger fel kapitelnummer för en paragraf."""
 
             # Generate response with Gemini
             gemini_response = self.model.generate_content(prompt)
@@ -244,22 +252,70 @@ class VectorStore:
 
                 def get_formatted_sources(self):
                     if not self.source_nodes:
-                        return "No specific source documents matched your query."
+                        return "Inga specifika källor matchade din fråga."
 
                     formatted_sources = []
                     for i, node in enumerate(self.source_nodes):
+                        # Extract file name
+                        file_name = "Okänd källa"
                         if (
                             hasattr(node.node, "metadata")
                             and "file_name" in node.node.metadata
                         ):
                             file_name = node.node.metadata["file_name"]
-                            formatted_sources.append(
-                                f"Source {i + 1}: {file_name} (similarity: {node.score:.2f})"
-                            )
+
+                        # Try to extract chapter and paragraph information with improved pattern matching
+                        text = node.node.text
+
+                        # Look for close proximity chapter-paragraph matches first (most reliable)
+                        combined_match = re.search(r"(\d+)\s*kap\.\s*(\d+)\s*§", text)
+                        if combined_match:
+                            chapter_num = combined_match.group(1)
+                            para_num = combined_match.group(2)
+                            location_info = f" (kapitel {chapter_num}, § {para_num})"
                         else:
-                            formatted_sources.append(
-                                f"Source {i + 1}: Unknown source (similarity: {node.score:.2f})"
-                            )
+                            # If no combined match, look for separate matches
+                            chapter_matches = re.findall(r"(\d+)\s*kap\.", text)
+                            paragraph_matches = re.findall(r"(\d+)\s*§", text)
+
+                            # If we have exactly one chapter and at least one paragraph, we can infer a relationship
+                            if len(chapter_matches) == 1 and paragraph_matches:
+                                chapter_info = f"kapitel {chapter_matches[0]}"
+                                # Use the first paragraph as the most relevant
+                                paragraph_info = f"§ {paragraph_matches[0]}"
+                                location_info = f" ({chapter_info}, {paragraph_info})"
+                            else:
+                                # Otherwise provide whatever information we have
+                                chapter_info = (
+                                    f"kapitel {chapter_matches[0]}"
+                                    if chapter_matches
+                                    else ""
+                                )
+                                paragraph_info = (
+                                    f"§ {paragraph_matches[0]}"
+                                    if paragraph_matches
+                                    else ""
+                                )
+
+                                if chapter_info and paragraph_info:
+                                    location_info = (
+                                        f" ({chapter_info}, {paragraph_info})"
+                                    )
+                                elif chapter_info:
+                                    location_info = f" ({chapter_info})"
+                                elif paragraph_info:
+                                    location_info = f" ({paragraph_info})"
+                                else:
+                                    location_info = ""
+
+                        # Format the source with similarity score and location info
+                        formatted_sources.append(
+                            f"Källa {i + 1}: {file_name}{location_info} (relevans: {node.score:.2f})"
+                        )
+
+                        # Add a small excerpt from the text to help verify correctness
+                        text_excerpt = text[:150] + "..." if len(text) > 150 else text
+                        formatted_sources.append(f'    Utdrag: "{text_excerpt}"')
 
                     return "\n".join(formatted_sources)
 
@@ -272,7 +328,13 @@ class VectorStore:
             if self.model:
                 try:
                     logger.info("Attempting direct Gemini query as fallback")
-                    direct_prompt = f"Svara på följande fråga gällande svensk patentlagstiftning: {query_text}"
+                    direct_prompt = f"""Du är en juridisk assistent som svarar på frågor om svensk immaterialsrättlagstiftning, inklusive upphovsrätt, patenträtt, varumärkesrätt och mönsterskydd.
+                    
+                    Du ska svara **på svenska** och ange kapitel och paragraf när det är möjligt. 
+                    
+                    Fråga: {query_text}
+                    
+                    Var tydlig om du inte har tillräcklig information för att svara på frågan."""
                     direct_response = self.model.generate_content(direct_prompt)
 
                     class FallbackResponse:
@@ -283,7 +345,7 @@ class VectorStore:
                             return self.text
 
                         def get_formatted_sources(self):
-                            return "Direct Gemini response without document context due to retrieval error. Using the BGE embedding model (BAAI/bge-small-en-v1.5)."
+                            return "Direkt svar från Gemini utan dokumentkontext på grund av indexeringsfel. Använder BGE inbäddningsmodell (BAAI/bge-small-en-v1.5)."
 
                     return FallbackResponse(direct_response.text)
                 except Exception as fallback_e:

@@ -6,3 +6,8 @@ source.txt
 tools/
 __pycache__/app/
 __pycache__/tools/
+app/__pycache__
+etl/__pycache__
+TODO
+upphovsrätt_ai_bilder.txt
+

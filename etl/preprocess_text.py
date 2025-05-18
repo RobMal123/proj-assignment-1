@@ -36,14 +36,14 @@ class LegalTextProcessor:
             str: Path to the processed file, or None if processing failed
         """
         try:
-            logger.info(f"Preprocessing patent law text file: {file_path}")
+            logger.info(f"Preprocessing legal text file: {file_path}")
             filename = os.path.basename(file_path)
             output_path = os.path.join(self.output_dir, filename)
 
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            # Apply preprocessing rules to improve retrieval of patent law terms
+            # Apply preprocessing rules to improve retrieval of legal terms
 
             # 1. Mark each chapter with a distinctive marker and repeat the chapter number
             enhanced_content = re.sub(
@@ -52,45 +52,67 @@ class LegalTextProcessor:
                 content,
             )
 
-            # 2. Enhance section references (paragraf) with repetition for emphasis
-            enhanced_content = re.sub(r"(\d+)\s*§", r"\n\n\1 § \1 §", enhanced_content)
+            # 2. Enhance section references (paragraf) with repetition and explicit chapter reference
+            # This is a key improvement to prevent mixing up chapters and paragraphs
+            def replace_paragraph(match):
+                para_num = match.group(1)
+                # Look for the most recent chapter reference before this paragraph
+                text_before = enhanced_content[: match.start()]
+                chapter_matches = list(re.finditer(r"(\d+)\s*kap\.", text_before))
 
-            # 3. Extra emphasis on the most important sections (1 kap. 1 §, etc.)
-            # This is crucial for questions about specific sections
+                if chapter_matches:
+                    # Get the most recent chapter number
+                    latest_chapter = chapter_matches[-1].group(1)
+                    # Return an explicitly linked chapter and paragraph
+                    return f"\n\n{para_num} § (i {latest_chapter} kap.) {para_num} §"
+                else:
+                    # If no chapter found, just enhance the paragraph
+                    return f"\n\n{para_num} § {para_num} §"
+
+            # Apply our custom paragraph enhancement
+            enhanced_content = re.sub(r"(\d+)\s*§", replace_paragraph, enhanced_content)
+
+            # 3. Extra emphasis on the most important sections with explicit chapter-paragraph linking
             enhanced_content = re.sub(
                 r"(1\s*kap\.\s*1\s*§)",
-                r"\n\n--- VIKTIG PARAGRAF ---\n\1 - DEFINITION AV PATENT OCH ENSAMRÄTT\n",
+                r"\n\n--- VIKTIG PARAGRAF ---\n\1 - (Kapitel 1, Paragraf 1) - DEFINITION AV PATENT OCH ENSAMRÄTT\n",
                 enhanced_content,
             )
 
             enhanced_content = re.sub(
                 r"(2\s*kap\.\s*1\s*§)",
-                r"\n\n--- VIKTIG PARAGRAF ---\n\1 - PATENTERBARA UPPFINNINGAR\n",
+                r"\n\n--- VIKTIG PARAGRAF ---\n\1 - (Kapitel 2, Paragraf 1) - PATENTERBARA UPPFINNINGAR\n",
                 enhanced_content,
             )
 
             enhanced_content = re.sub(
                 r"(3\s*kap\.\s*1\s*§)",
-                r"\n\n--- VIKTIG PARAGRAF ---\n\1 - ENSAMRÄTTENS OMFATTNING\n",
+                r"\n\n--- VIKTIG PARAGRAF ---\n\1 - (Kapitel 3, Paragraf 1) - ENSAMRÄTTENS OMFATTNING\n",
                 enhanced_content,
             )
 
             # 4. Format headers and important sections in patent law
             enhanced_content = re.sub(
-                r"(Det patenterbara området|Patent|Europeiskt patent|Patenterbara uppfinningar|Människokroppen|Växtsorter och djurraser)",
+                r"(Det patenterbara området|Patent|Europeiskt patent|Patenterbara uppfinningar|Människokroppen|Växtsorter och djurraser|Mönsterskydd|Ensamrätt till mönster|Skyddstiden)",
                 r"\n\n--- AVSNITT ---\n\1",
                 enhanced_content,
             )
 
-            # 5. Enhance patent terminology with repetition for better retrieval
+            # 5. Enhance terminology with repetition for better retrieval
             # This helps with general queries about these concepts
-            for term in [
+            legal_terms = [
                 "ensamrätt",
                 "uppfinning",
                 "patenthavaren",
                 "patentskydd",
                 "patentansökan",
-            ]:
+                "mönsterskydd",
+                "mönsterhavaren",
+                "designskydd",
+                "bruksmodell",
+            ]
+
+            for term in legal_terms:
                 enhanced_content = re.sub(
                     rf"\b({term})\b",
                     r"\n\n\1 \1",
@@ -100,29 +122,65 @@ class LegalTextProcessor:
 
             # 6. Add section markers for improved chunking
             enhanced_content = re.sub(
-                r"(Grundläggande bestämmelser|Lagens innehåll|Lagens tillämpningsområde|Svenskt patent)",
+                r"(Grundläggande bestämmelser|Lagens innehåll|Lagens tillämpningsområde|Svenskt patent|Registrering av mönster|Skyddsförutsättningar)",
                 r"\n\n--- SEKTION ---\n\1",
                 enhanced_content,
             )
 
-            # 7. Duplicate the first paragraph of the law which defines patents
-            # This is the most commonly queried information
-            if "Den som har gjort en uppfinning" in enhanced_content:
-                first_para = """
---- PATENT DEFINITION ---
-1 kap. 1 § PATENT: Den som har gjort en uppfinning, eller den till vilken uppfinnarens rätt har övergått, kan beviljas patent på uppfinningen i Sverige.
+            # 7. Add explicit tags for every chapter-paragraph combination
+            # This greatly improves the system's ability to keep them linked correctly
+            for chap_match in re.finditer(r"(\d+)\s*kap\.", enhanced_content):
+                chap_num = chap_match.group(1)
+                # Find nearby paragraph references that follow this chapter
+                text_after = enhanced_content[
+                    chap_match.end() : chap_match.end() + 500
+                ]  # Look 500 chars ahead
+                for para_match in re.finditer(r"(\d+)\s*§", text_after):
+                    para_num = para_match.group(1)
+                    tag = f"\n[KAPITEL-PARAGRAF-TAGG: Kapitel {chap_num}, Paragraf {para_num}]\n"
+                    # Insert this tag nearby the paragraph
+                    insert_pos = chap_match.end() + para_match.end() + 10
+                    if insert_pos < len(enhanced_content):
+                        enhanced_content = (
+                            enhanced_content[:insert_pos]
+                            + tag
+                            + enhanced_content[insert_pos:]
+                        )
 
-Ett patent ger patenthavaren ensamrätt att yrkesmässigt utnyttja uppfinningen enligt denna lag.
---- PATENT DEFINITION ---
+            # 8. For common first paragraphs, ensure they are clearly marked with both chapter and paragraph
+            # This handles laws like patent law, design protection law, etc.
+            first_para_patterns = [
+                (r"Den som har gjort en uppfinning", "1 kap. 1 § PATENT: ", "patent"),
+                (
+                    r"Den som har skapat ett mönster",
+                    "1 kap. 1 § MÖNSTERSKYDD: ",
+                    "mönsterskydd",
+                ),
+                (
+                    r"Den som formgivit en produkt",
+                    "1 kap. 1 § DESIGNSKYDD: ",
+                    "designskydd",
+                ),
+            ]
+
+            for pattern, prefix, law_type in first_para_patterns:
+                if pattern in enhanced_content:
+                    first_para = f"""
+--- {law_type.upper()} DEFINITION ---
+{prefix}(Kapitel 1, Paragraf 1) Den som har skapat ett mönster, eller den till vilken mönstret har övergått, kan genom registrering få ensamrätt till mönstret enligt denna lag (mönsterrätt).
+
+Mönsterrätten ger innehavaren ensamrätt att yrkesmässigt utnyttja mönstret enligt denna lag.
+--- {law_type.upper()} DEFINITION ---
 
 """
-                enhanced_content = first_para + enhanced_content
+                    if not first_para in enhanced_content:
+                        enhanced_content = first_para + enhanced_content
 
             # Write the enhanced content to file
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(enhanced_content)
 
-            logger.info(f"Preprocessed patent law text saved to {output_path}")
+            logger.info(f"Preprocessed legal text saved to {output_path}")
             return output_path
 
         except Exception as e:

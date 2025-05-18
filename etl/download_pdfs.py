@@ -136,7 +136,9 @@ if __name__ == "__main__":
 
     # Example URLs (these are placeholders)
     sample_urls = [
-        "https://se.jura.com/-/media/global/pdf/manuals-global/home/ENA-Micro/download_manual_jura_ena-micro1.pdf?la=sv&hash=B9A9420DF11437AE70F029B0195163A63048E7DD&em_force=true",
+        "https://www.skatteverket.se/download/18.18e1b10334ebe8bc8000114491/1708608369201/kap10.pdf",
+        "https://www.skatteverket.se/download/18.262c54c219391f2e963479c/1740996584047/skatteutrakningsbroschyren-skv425-utgava31.pdf",
+        "https://www.skatteverket.se/download/18.262c54c219391f2e963479d/1735800302832/Skatteutr%C3%A4kningsbilaga-sida-1-och-2-2025.pdf",
     ]
 
     downloaded_files = downloader.download_from_list(sample_urls)
