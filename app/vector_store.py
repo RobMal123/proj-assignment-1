@@ -227,7 +227,8 @@ class VectorStore:
                 term in query_text.lower()
                 for term in ["livstid", "giltighetstid", "skyddstid", "år"]
             ):
-                query_kwargs["filters"] = {"lifetime_info": True}
+                # Instead of using filters, we'll post-process the results
+                logger.info("Lifetime query detected - will prioritize relevant chunks")
 
             logger.info(f"Querying index with enhanced query: {query_text}")
 
@@ -245,6 +246,26 @@ class VectorStore:
                 context_texts = [node.node.text for node in nodes]
                 source_nodes = nodes
                 logger.info(f"Retrieved {len(nodes)} relevant chunks from the index")
+
+                # Post-process results for lifetime queries
+                if any(
+                    term in query_text.lower()
+                    for term in ["livstid", "giltighetstid", "skyddstid", "år"]
+                ):
+                    # Sort nodes by relevance to lifetime information
+                    lifetime_nodes = []
+                    other_nodes = []
+                    for node in nodes:
+                        if hasattr(node.node, "metadata") and node.node.metadata.get(
+                            "lifetime_info", False
+                        ):
+                            lifetime_nodes.append(node)
+                        else:
+                            other_nodes.append(node)
+
+                    # Reorder nodes to prioritize lifetime information
+                    nodes = lifetime_nodes + other_nodes
+                    context_texts = [node.node.text for node in nodes]
 
             # Format context for Gemini
             context_str = "\n\n".join(context_texts)
