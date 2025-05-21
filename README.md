@@ -1,6 +1,6 @@
-# Simple RAG Chatbot
+# Legal Document RAG Chatbot (swedish)
 
-Implementation of a Retrieval Augmented Generation (RAG) chatbot using Google Gemini API and LlamaIndex.
+Implementation of a Retrieval Augmented Generation (RAG) chatbot using Google Gemini API and LlamaIndex, specifically optimized for Swedish legal documents.
 
 ## Project Structure
 
@@ -16,16 +16,39 @@ Implementation of a Retrieval Augmented Generation (RAG) chatbot using Google Ge
   └── vector_store/ - Vector embeddings
 📁 etl/            - ETL processing scripts
   ├── download_pdfs.py - Download PDFs from URLs
-  └── extract_text.py - Extract text from PDFs
+  ├── extract_text.py - Extract text from PDFs
+  └── preprocess_text.py - Enhanced legal text preprocessing
 📁 tools/          - Utility scripts
-  └── upload_pdf.py - Simple PDF processing wrapper script
+  ├── optimize_legal_text.py - Legal text optimization tool
+  ├── test_query.py - Query testing and validation
+  └── upload_pdf.py - PDF processing wrapper script
 ```
+
+## Features
+
+- **Enhanced Legal Text Processing**:
+
+  - Consistent chapter and paragraph formatting
+  - Clear section markers and headers
+  - Improved text cleaning and normalization
+  - Better handling of legal terminology
+
+- **Improved Source Formatting**:
+
+  - Clear chapter and paragraph references
+  - Consistent spacing and alignment
+  - Better readability of legal documents
+
+- **Testing and Validation**:
+  - Query testing tool for response validation
+  - Predefined test queries
+  - Response quality assessment
 
 ## Setup
 
 1. Install the required packages:
 
-   ```
+   ```bash
    pip install -r requirements.txt
    ```
 
@@ -41,43 +64,70 @@ Implementation of a Retrieval Augmented Generation (RAG) chatbot using Google Ge
    APP_PORT=8000
    DEBUG=False
 
-   # Monitoring
-   ENABLE_METRICS=True
-   LOG_LEVEL=INFO
    ```
 
-3. Process PDFs by either:
+3. Process your legal documents:
 
-   - Placing PDF files directly in the `data/raw` directory
-   - Downloading PDFs from a URL:
+   a. Place your text files in the `data/raw` directory
+
+   b. Run the preprocessing script:
+
+   ```bash
+   py -m etl.preprocess_text
+   ```
+
+   c. For PDF processing, you can:
+
+   - Place PDF files directly in the `data/raw` directory
+   - Download PDFs from a URL:
+     ```bash
+     py tools/upload_pdf.py --url https://example.com/document.pdf
      ```
-     python tools/upload_pdf.py --url https://example.com/document.pdf
-     ```
-   - Processing existing PDFs in the raw directory:
-     ```
-     python tools/upload_pdf.py
+   - Process existing PDFs:
+     ```bash
+     py tools/upload_pdf.py
      ```
 
 4. Start the FastAPI server:
 
-   ```
-   python -m app.main
+   ```bash
+   py -m app.main
    ```
 
 5. Open your browser and go to http://localhost:8000 to interact with the API.
 
 ## How It Works
 
-1. PDF documents are processed to extract text using the ETL pipeline.
-2. Text is embedded and stored in a vector database using LlamaIndex.
-3. When a user asks a question, the most relevant document chunks are retrieved.
-4. The Google Gemini model generates a response using the retrieved context.
+1. Legal documents are processed through the ETL pipeline:
+
+   - Text is extracted from PDFs
+   - Legal text is preprocessed with enhanced formatting
+   - Documents are cleaned and normalized
+
+2. Processed text is embedded and stored in a vector database using LlamaIndex
+
+3. When a user asks a question:
+   - The most relevant document chunks are retrieved
+   - The Google Gemini model generates a response using the retrieved context
+   - Sources are formatted for better readability
 
 ## API Endpoints
 
 - `POST /chat`: Send a query to the chatbot
 - `GET /health`: Check API health
 - `POST /refresh`: Refresh the knowledge base
+
+## Testing
+
+You can test the system's responses using the test_query.py tool:
+
+```bash
+# Test a single query
+py tools/test_query.py "Your question here"
+
+# Run all predefined test queries
+py tools/test_query.py --all
+```
 
 ## Example Usage
 
@@ -86,7 +136,7 @@ import requests
 
 response = requests.post(
     "http://localhost:8000/chat",
-    json={"query": "What is RAG?"}
+    json={"query": "What is the definition of a patent?"}
 )
 
 print(response.json())
