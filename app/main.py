@@ -8,6 +8,7 @@ from app.chatbot import Chatbot
 from app.config import APP_HOST, APP_PORT, DEBUG, ENABLE_METRICS
 import uvicorn
 from prometheus_client import make_asgi_app
+from fastapi.staticfiles import StaticFiles
 
 # Set up logging
 logging.basicConfig(
@@ -32,6 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
 # Add prometheus metrics
 if ENABLE_METRICS:
     metrics_app = make_asgi_app()
@@ -54,9 +58,15 @@ class ChatRequest(BaseModel):
     conversation_history: Optional[List[Dict[str, str]]] = None
 
 
+class Source(BaseModel):
+    file: str
+    text: str
+    relevance: float
+
+
 class ChatResponse(BaseModel):
     answer: str
-    sources: Optional[str] = None
+    sources: Optional[List[Source]] = None
     response_time: float
 
 

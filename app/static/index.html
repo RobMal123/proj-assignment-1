@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Juridisk Assistans - RAG Chatbot</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Juridisk Assistans</h1>
+            <p>Få svar på dina frågor om patentlag och andra juridiska ämnen</p>
+        </header>
+
+        <main>
+            <div class="chat-container">
+                <div id="chat-messages" class="chat-messages">
+                    <div class="message system">
+                        Välkommen! Ställ gärna en fråga om patentlag eller annan immaterialrättslig lagstiftning.
+                    </div>
+                </div>
+
+                <div class="chat-input">
+                    <textarea 
+                        id="user-input" 
+                        placeholder="Skriv din fråga här..."
+                        rows="3"
+                    ></textarea>
+                    <button id="send-button">Skicka</button>
+                </div>
+            </div>
+
+            <div class="sources-container">
+                <h3>Källor</h3>
+                <div id="sources-list" class="sources-list">
+                    <!-- Sources will be displayed here -->
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Powered by Gemini AI & LlamaIndex</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html> 

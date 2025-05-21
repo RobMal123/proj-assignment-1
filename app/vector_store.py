@@ -85,8 +85,8 @@ class VectorStore:
             # - smaller chunk_size for better precision on specific paragraphs
             # - higher overlap to ensure context is maintained
             splitter = SentenceSplitter(
-                chunk_size=384,  # Smaller chunks for more precise retrieval
-                chunk_overlap=192,  # Higher overlap to preserve context
+                chunk_size=512,  # Increased chunk size to better preserve context
+                chunk_overlap=256,  # Increased overlap for better context preservation
                 paragraph_separator="\n\n",
             )
 
@@ -98,29 +98,44 @@ class VectorStore:
             # For enhanced logging, count references to patents and key sections
             patent_references = 0
             section_references = 0
-            important_sections = (
-                0  # Count of chunks with 1 kap. 1 § and similar important sections
-            )
+            important_sections = 0
+            lifetime_references = 0
 
             for node in nodes:
+                # Add metadata for better retrieval
+                if "metadata" not in node.__dict__:
+                    node.metadata = {}
+
+                # Check for patent lifetime related content
+                if re.search(
+                    r"år|livstid|giltighetstid|skyddstid|upprätthållas",
+                    node.text,
+                    re.IGNORECASE,
+                ):
+                    lifetime_references += 1
+                    node.metadata["lifetime_info"] = True
+
                 if re.search(r"Patent|patent|uppfinn", node.text):
                     patent_references += 1
+                    node.metadata["patent_info"] = True
+
                 if re.search(r"\d+\s*§", node.text):
                     section_references += 1
-                # Specifically identify important sections like 1 kap. 1 §
+                    node.metadata["has_section"] = True
+
+                # Specifically identify important sections
                 if re.search(
-                    r"1\s*kap\.\s*1\s*§|ensamrätt|patenterbara",
+                    r"1\s*kap\.\s*1\s*§|ensamrätt|patenterbara|5\s*kap\.\s*2\s*§",
                     node.text,
                     re.IGNORECASE,
                 ):
                     important_sections += 1
-                    # Add metadata to help with retrieval
-                    if "metadata" in node.__dict__:
-                        node.metadata["important"] = True
+                    node.metadata["important"] = True
 
             logger.info(
-                f"Created {len(nodes)} chunks, with {patent_references} chunks containing patent references, "
-                f"{section_references} containing section references, and {important_sections} important sections"
+                f"Created {len(nodes)} chunks, with {patent_references} patent references, "
+                f"{section_references} section references, {important_sections} important sections, "
+                f"and {lifetime_references} lifetime references"
             )
 
             self.index = VectorStoreIndex(nodes)
@@ -187,6 +202,11 @@ class VectorStore:
                 "uppfinning",
                 "patenterbar",
                 "människokropp",
+                "livstid",
+                "giltighetstid",
+                "skyddstid",
+                "år",
+                "upprätthållas",
             ]:
                 if concept.lower() in query_text.lower():
                     key_concepts.append(concept)
@@ -198,8 +218,16 @@ class VectorStore:
 
             # Configure query parameters
             query_kwargs = {
-                "similarity_top_k": 8  # Retrieve more chunks for better context
+                "similarity_top_k": 12,  # Increased number of chunks for better context
+                "include_metadata": True,  # Include metadata in results
             }
+
+            # Add specific filters for lifetime queries
+            if any(
+                term in query_text.lower()
+                for term in ["livstid", "giltighetstid", "skyddstid", "år"]
+            ):
+                query_kwargs["filters"] = {"lifetime_info": True}
 
             logger.info(f"Querying index with enhanced query: {query_text}")
 
@@ -236,6 +264,7 @@ class VectorStore:
             - Om du citerar lagtext, markera tydligt början och slutet på citatet
             - Hänvisa alltid till ursprungskällan och var helt transparent med var informationen kommer ifrån
             - Om paragrafnummer och kapitelnummer förekommer separat i olika delar av texten, säkerställ att du kombinerar dem korrekt
+            - Efter ditt svar, lista EXAKT vilka källor du använde för att generera svaret, i formatet "Använda källor: [kapitel och paragraf] [filnamn]"
             
             ### Lagtext:
             {context_str}
@@ -247,22 +276,50 @@ class VectorStore:
 
             # Generate response with Gemini
             gemini_response = self.model.generate_content(prompt)
+            response_text = gemini_response.text
+
+            # Extract used sources from the response
+            used_sources = []
+            source_pattern = r"(\d+)\s*kap\.\s*(\d+)\s*§\s*([^\n]+)"
+            source_matches = re.finditer(source_pattern, response_text)
+
+            for match in source_matches:
+                chapter = match.group(1)
+                paragraph = match.group(2)
+                filename = match.group(3).strip()
+
+                # Find the corresponding node that contains this reference
+                for node in source_nodes:
+                    if re.search(
+                        f"{chapter}\\s*kap\\.\\s*{paragraph}\\s*§", node.node.text
+                    ):
+                        # Update the node's metadata with the filename from the response
+                        if "metadata" not in node.node.__dict__:
+                            node.node.metadata = {}
+                        node.node.metadata["file_name"] = filename
+                        used_sources.append(node)
+                        break
+
+            # If no sources were explicitly referenced, use the most relevant ones
+            if not used_sources and source_nodes:
+                used_sources = [node for node in source_nodes if node.score > 0.5]
 
             # Create a response object with source information
             class EnhancedResponse:
-                def __init__(self, text, source_nodes):
+                def __init__(self, text, source_nodes, used_sources):
                     self.text = text
                     self.source_nodes = source_nodes
+                    self.used_sources = used_sources
 
                 def __str__(self):
                     return self.text
 
                 def get_formatted_sources(self):
-                    if not self.source_nodes:
+                    if not self.used_sources:
                         return "Inga specifika källor matchade din fråga."
 
                     formatted_sources = []
-                    for i, node in enumerate(self.source_nodes):
+                    for i, node in enumerate(self.used_sources):
                         # Extract file name
                         file_name = "Okänd källa"
                         if (
@@ -271,62 +328,28 @@ class VectorStore:
                         ):
                             file_name = node.node.metadata["file_name"]
 
-                        # Try to extract chapter and paragraph information with improved pattern matching
+                        # Try to extract chapter and paragraph information
                         text = node.node.text
-
-                        # Look for close proximity chapter-paragraph matches first (most reliable)
                         combined_match = re.search(r"(\d+)\s*kap\.\s*(\d+)\s*§", text)
                         if combined_match:
                             chapter_num = combined_match.group(1)
                             para_num = combined_match.group(2)
                             location_info = f" (kapitel {chapter_num}, § {para_num})"
                         else:
-                            # If no combined match, look for separate matches
-                            chapter_matches = re.findall(r"(\d+)\s*kap\.", text)
-                            paragraph_matches = re.findall(r"(\d+)\s*§", text)
-
-                            # If we have exactly one chapter and at least one paragraph, we can infer a relationship
-                            if len(chapter_matches) == 1 and paragraph_matches:
-                                chapter_info = f"kapitel {chapter_matches[0]}"
-                                # Use the first paragraph as the most relevant
-                                paragraph_info = f"§ {paragraph_matches[0]}"
-                                location_info = f" ({chapter_info}, {paragraph_info})"
-                            else:
-                                # Otherwise provide whatever information we have
-                                chapter_info = (
-                                    f"kapitel {chapter_matches[0]}"
-                                    if chapter_matches
-                                    else ""
-                                )
-                                paragraph_info = (
-                                    f"§ {paragraph_matches[0]}"
-                                    if paragraph_matches
-                                    else ""
-                                )
-
-                                if chapter_info and paragraph_info:
-                                    location_info = (
-                                        f" ({chapter_info}, {paragraph_info})"
-                                    )
-                                elif chapter_info:
-                                    location_info = f" ({chapter_info})"
-                                elif paragraph_info:
-                                    location_info = f" ({paragraph_info})"
-                                else:
-                                    location_info = ""
+                            location_info = ""
 
                         # Format the source with similarity score and location info
                         formatted_sources.append(
                             f"Källa {i + 1}: {file_name}{location_info} (relevans: {node.score:.2f})"
                         )
 
-                        # Add a small excerpt from the text to help verify correctness
+                        # Add a small excerpt from the text
                         text_excerpt = text[:150] + "..." if len(text) > 150 else text
                         formatted_sources.append(f'    Utdrag: "{text_excerpt}"')
 
                     return "\n".join(formatted_sources)
 
-            return EnhancedResponse(gemini_response.text, source_nodes)
+            return EnhancedResponse(response_text, source_nodes, used_sources)
 
         except Exception as e:
             logger.error(f"Error querying index: {e}")
