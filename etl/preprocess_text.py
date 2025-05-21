@@ -43,17 +43,21 @@ class LegalTextProcessor:
             with open(file_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
-            # Apply preprocessing rules to improve retrieval of legal terms
+            # Initial cleanup
+            content = re.sub(r"\r\n", "\n", content)  # Remove carriage returns
+            content = re.sub(r"\n{3,}", "\n\n", content)  # Normalize newlines
+            content = re.sub(r" +", " ", content)  # Normalize spaces
+            content = re.sub(r"\.{3,}", "...", content)  # Normalize ellipsis
+            content = re.sub(r"\.\.\.$", "", content)  # Remove trailing ellipsis
 
-            # 1. Mark each chapter with a distinctive marker and repeat the chapter number
+            # 1. Mark each chapter with a distinctive marker and ensure consistent formatting
             enhanced_content = re.sub(
                 r"(\d+)\s*kap\.\s*([^§]*)",
-                r"\n\n--- KAPITEL \1 ---\n\1 kap. \2",
+                lambda m: f"\n\n=== KAPITEL {m.group(1)} ===\n{m.group(1)} kap. {m.group(2).strip()}",
                 content,
             )
 
-            # 2. Enhance section references (paragraf) with repetition and explicit chapter reference
-            # This is a key improvement to prevent mixing up chapters and paragraphs
+            # 2. Add chapter number before each paragraph with improved formatting
             def replace_paragraph(match):
                 para_num = match.group(1)
                 # Look for the most recent chapter reference before this paragraph
@@ -63,118 +67,76 @@ class LegalTextProcessor:
                 if chapter_matches:
                     # Get the most recent chapter number
                     latest_chapter = chapter_matches[-1].group(1)
-                    # Return an explicitly linked chapter and paragraph
-                    return f"\n\n{para_num} § (i {latest_chapter} kap.) {para_num} §"
+                    # Return paragraph with chapter number in a consistent format
+                    return f"\n\n{latest_chapter} kap, {para_num} §   "  # Added extra spaces for alignment
                 else:
-                    # If no chapter found, just enhance the paragraph
-                    return f"\n\n{para_num} § {para_num} §"
+                    # If no chapter found, just return the paragraph with consistent spacing
+                    return f"\n\n{para_num} §   "  # Added extra spaces for alignment
 
             # Apply our custom paragraph enhancement
             enhanced_content = re.sub(r"(\d+)\s*§", replace_paragraph, enhanced_content)
 
-            # 3. Extra emphasis on the most important sections with explicit chapter-paragraph linking
-            enhanced_content = re.sub(
-                r"(1\s*kap\.\s*1\s*§)",
-                r"\n\n--- VIKTIG PARAGRAF ---\n\1 - (Kapitel 1, Paragraf 1) - DEFINITION AV PATENT OCH ENSAMRÄTT\n",
-                enhanced_content,
-            )
-
-            enhanced_content = re.sub(
-                r"(2\s*kap\.\s*1\s*§)",
-                r"\n\n--- VIKTIG PARAGRAF ---\n\1 - (Kapitel 2, Paragraf 1) - PATENTERBARA UPPFINNINGAR\n",
-                enhanced_content,
-            )
-
-            enhanced_content = re.sub(
-                r"(3\s*kap\.\s*1\s*§)",
-                r"\n\n--- VIKTIG PARAGRAF ---\n\1 - (Kapitel 3, Paragraf 1) - ENSAMRÄTTENS OMFATTNING\n",
-                enhanced_content,
-            )
-
-            # 4. Format headers and important sections in patent law
-            enhanced_content = re.sub(
-                r"(Det patenterbara området|Patent|Europeiskt patent|Patenterbara uppfinningar|Människokroppen|Växtsorter och djurraser|Mönsterskydd|Ensamrätt till mönster|Skyddstiden)",
-                r"\n\n--- AVSNITT ---\n\1",
-                enhanced_content,
-            )
-
-            # 5. Enhance terminology with repetition for better retrieval
-            # This helps with general queries about these concepts
-            legal_terms = [
-                "ensamrätt",
-                "uppfinning",
-                "patenthavaren",
-                "patentskydd",
-                "patentansökan",
-                "mönsterskydd",
-                "mönsterhavaren",
-                "designskydd",
-                "bruksmodell",
+            # 3. Format headers and important sections with improved markers
+            section_headers = [
+                "Det patenterbara området",
+                "Patent",
+                "Europeiskt patent",
+                "Patenterbara uppfinningar",
+                "Människokroppen",
+                "Växtsorter och djurraser",
+                "Mönsterskydd",
+                "Ensamrätt till mönster",
+                "Skyddstiden",
             ]
 
-            for term in legal_terms:
+            for header in section_headers:
                 enhanced_content = re.sub(
-                    rf"\b({term})\b",
-                    r"\n\n\1 \1",
+                    rf"{re.escape(header)}",
+                    f"\n\n--- {header.upper()} ---\n{header}",
                     enhanced_content,
-                    flags=re.IGNORECASE,
                 )
 
-            # 6. Add section markers for improved chunking
-            enhanced_content = re.sub(
-                r"(Grundläggande bestämmelser|Lagens innehåll|Lagens tillämpningsområde|Svenskt patent|Registrering av mönster|Skyddsförutsättningar)",
-                r"\n\n--- SEKTION ---\n\1",
-                enhanced_content,
-            )
-
-            # 7. Add explicit tags for every chapter-paragraph combination
-            # This greatly improves the system's ability to keep them linked correctly
-            for chap_match in re.finditer(r"(\d+)\s*kap\.", enhanced_content):
-                chap_num = chap_match.group(1)
-                # Find nearby paragraph references that follow this chapter
-                text_after = enhanced_content[
-                    chap_match.end() : chap_match.end() + 500
-                ]  # Look 500 chars ahead
-                for para_match in re.finditer(r"(\d+)\s*§", text_after):
-                    para_num = para_match.group(1)
-                    tag = f"\n[KAPITEL-PARAGRAF-TAGG: Kapitel {chap_num}, Paragraf {para_num}]\n"
-                    # Insert this tag nearby the paragraph
-                    insert_pos = chap_match.end() + para_match.end() + 10
-                    if insert_pos < len(enhanced_content):
-                        enhanced_content = (
-                            enhanced_content[:insert_pos]
-                            + tag
-                            + enhanced_content[insert_pos:]
-                        )
-
-            # 8. For common first paragraphs, ensure they are clearly marked with both chapter and paragraph
-            # This handles laws like patent law, design protection law, etc.
-            first_para_patterns = [
-                (r"Den som har gjort en uppfinning", "1 kap. 1 § PATENT: ", "patent"),
-                (
-                    r"Den som har skapat ett mönster",
-                    "1 kap. 1 § MÖNSTERSKYDD: ",
-                    "mönsterskydd",
-                ),
-                (
-                    r"Den som formgivit en produkt",
-                    "1 kap. 1 § DESIGNSKYDD: ",
-                    "designskydd",
-                ),
+            # 4. Add section markers for improved chunking with consistent formatting
+            section_markers = [
+                "Grundläggande bestämmelser",
+                "Lagens innehåll",
+                "Lagens tillämpningsområde",
+                "Svenskt patent",
+                "Registrering av mönster",
+                "Skyddsförutsättningar",
             ]
 
-            for pattern, prefix, law_type in first_para_patterns:
-                if pattern in enhanced_content:
-                    first_para = f"""
---- {law_type.upper()} DEFINITION ---
-{prefix}(Kapitel 1, Paragraf 1) Den som har skapat ett mönster, eller den till vilken mönstret har övergått, kan genom registrering få ensamrätt till mönstret enligt denna lag (mönsterrätt).
+            for marker in section_markers:
+                enhanced_content = re.sub(
+                    rf"{re.escape(marker)}",
+                    f"\n\n--- {marker.upper()} ---\n{marker}",
+                    enhanced_content,
+                )
 
-Mönsterrätten ger innehavaren ensamrätt att yrkesmässigt utnyttja mönstret enligt denna lag.
---- {law_type.upper()} DEFINITION ---
+            # 5. Final cleanup with improved formatting
+            enhanced_content = re.sub(
+                r"\n{3,}", "\n\n", enhanced_content
+            )  # Remove extra newlines
+            enhanced_content = re.sub(
+                r" +", " ", enhanced_content
+            )  # Remove extra spaces
+            enhanced_content = re.sub(
+                r"\.{3,}", "...", enhanced_content
+            )  # Normalize ellipsis
+            enhanced_content = re.sub(
+                r"\.\.\.$", "", enhanced_content
+            )  # Remove trailing ellipsis
+            enhanced_content = (
+                enhanced_content.strip()
+            )  # Remove leading/trailing whitespace
 
-"""
-                    if not first_para in enhanced_content:
-                        enhanced_content = first_para + enhanced_content
+            # 6. Ensure consistent spacing after paragraphs
+            enhanced_content = re.sub(
+                r"§\s+", "§   ", enhanced_content
+            )  # Consistent spacing after §
+            enhanced_content = re.sub(
+                r"kap\.\s+", "kap. ", enhanced_content
+            )  # Consistent spacing after kap.
 
             # Write the enhanced content to file
             with open(output_path, "w", encoding="utf-8") as f:

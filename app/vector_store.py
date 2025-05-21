@@ -12,11 +12,18 @@ import google.generativeai as genai
 logger = logging.getLogger(__name__)
 
 # Configure embedding model to use a model that's good for technical and legal patent terminology
+# Using a model with better support for Swedish language
+Settings.embed_model = HuggingFaceEmbedding(
+    model_name="KBLab/sentence-bert-swedish-cased"
+)
+
 # Using BGE model which performs well on retrieval tasks
-Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
+# Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
 # Alternative options:
-# - "sentence-transformers/all-mpnet-base-v2" (Higher quality but slower)
-# - "sentence-transformers/multi-qa-mpnet-base-dot-v1" (Good for question answering)
+# - "intfloat/multilingual-e5-large" (Higher quality but slower, good for Swedish)
+# - "sentence-transformers/paraphrase-multilingual-mpnet-base-v2" (Good multilingual support)
+# - "BAAI/bge-small-en-v1.5" (Previous model, English-focused)
+# Behöver vi en annan embedding model som är bättre på att hantera svenska?
 
 
 class VectorStore:
